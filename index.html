@@ -653,7 +653,7 @@ function writeText(value, params = {TEXT_TIME: 10, NEW_LINE_SPEED: 100}) {
 
 	}, 0, {index: 0, value: value});
 
-	return wrap(createNew.then(scrollDown).then(writeText));
+	return wrap(createNew.then(scrollDown).then(writeText).then(wait(null, 100 + value.length * 35)));
 }
 
 
@@ -678,11 +678,11 @@ let buttonMargin = 60;
 
 let NO_STATUS = [
 	[(cnv, w, h) => {
-		disableAll(); return writeText("Ah forse non hai capito, la domanda era: " + questions[nrYes]).then(wait(enableAll));
+		disableAll(); return writeText("Mi sa che hai sbagliato a premere, tranquilla questa volta non lo conto ;)").then(wait(enableAll));
 	}],
 
 	[(cnv, w, h) => {
-		disableAll(); return writeText("Ma sai leggere, rispondi alla domanda: " + questions[nrYes]).then(wait(enableAll));
+		disableAll(); return writeText("Ah forse non hai capito la domanda").then(writeText("la domanda era: " + questions[nrYes])).then(wait(enableAll));
 	},],
 
 	[(cnv, w, h) => {
@@ -695,7 +695,7 @@ let NO_STATUS = [
 			.push(sizes.small)
 			.push(sizes.big);
 
-		return writeText("Te la rendero piu facile....").then(linear(start, end, 500, (v) => {
+		return writeText("Te la renderò più facile così non sbaglierai più").then(linear(start, end, 500, (v) => {
 			buttonNo.setSize(v.get(0));
 			buttonYes.setSize(v.get(1));
 		})).then(wait(enableAll));
@@ -711,7 +711,7 @@ let NO_STATUS = [
 			.push(sizes.standard)
 			.push(sizes.standard);
 
-		return join(writeText("Phew mi avevi fatto preoccupare"), (linear(start, end, 500, (v) => {
+		return join(writeText("Phew per un attimo avevo creduto volessi davvero premere \"no\""), (linear(start, end, 500, (v) => {
 			buttonNo.setSize(v.get(0));
 			buttonYes.setSize(v.get(1));
 		}))).then(wait(enableAll, 1000));
@@ -727,7 +727,7 @@ let NO_STATUS = [
 			.push(positions.decreaseNo)
 			.push(positions.increaseYes);
 
-		return writeText("Forse hai bisogno di qualche aiuto in più... ").then(linear(start, end, 500, (v) => {
+		return writeText("Forse hai bisogno di qualche aiuto in più per capire").then(linear(start, end, 500, (v) => {
 			buttonNo.setPosition(v.get(0));
 			buttonYes.setPosition(v.get(1));
 		})).then(wait(enableAll));
@@ -746,7 +746,7 @@ let NO_STATUS = [
 			.push(sizes.standard)
 			.push(sizes.standard);
 
-		return join(writeText("Hai bisogno degli occhiali probabilmente"), linear(start, end, 500, (v) => {
+		return join(writeText("Non prendermi in giro! potevi premere subito \"si\""), linear(start, end, 500, (v) => {
 			buttonNo.setPosition(v.get(0));
 			buttonYes.setPosition(v.get(1));
 			buttonNo.setSize(v.get(2));
@@ -837,7 +837,8 @@ let NO_STATUS = [
 			})));
 		};
 
-		let node = writeText("Ufff forse hai solo bisogno di un piccolo gioco")
+		let node = writeText("Forse non sei molto attenta per questo sbagli")
+			.then(writeText("Vediamo se sei attenta"))
 			.then(wait(null, 500))
 			.then(setGame)
 			.then(removeLabel)
@@ -876,7 +877,7 @@ let NO_STATUS = [
 				btn.value.setSize(v.clone())
 		});
 
-		return join(writeText("Hai perso ahahahahah"), killButtons
+		return join(writeText("A quanto pare stavi attenta! comunque, continuiamo"), killButtons
 			.then(wait((context) => {
 				for (let btn of yesButtons)
 					btn.destroy = true;
@@ -913,7 +914,7 @@ let NO_STATUS = [
 
 
 		return join(
-			writeText("mi stai iniziando a far arrabbiare. premi il pulsante \"si\""), 
+			writeText("mi stai iniziando a far arrabbiare. Lo stai facendo apposta?"), 
 			join(
 				changeBackground(new vec4(255, 220, 200, 1), 1200), 
 				killButtons
@@ -923,7 +924,7 @@ let NO_STATUS = [
 	},
 	(cnv, w, h) => {
 		return join(
-			writeText("spero tu capisca che servirà di piu per farti perdonare").then(
+			writeText("spero tu capisca che servirà di piu per farti perdonare...").then(
 				writeText("che dici di iniziare premendo piu volte il pulsante \"si\"")
 			), 
 			changeBackground(new vec4(255, 255, 255, 1), 1200)
@@ -941,8 +942,8 @@ let NO_STATUS = [
 
 		disableAll();
 		return join(
-			writeText("BASTA, BASTA")
-				.then(writeText("HAI ROTTO IL CAZZO")),
+			writeText("BASTA, BASTA!")
+				.then(writeText("HAI DAVVERO ROTTO!")),
 			changeBackground(new vec4(255, 160, 140, 1), 1000)
 		).then(writeText("MI RIPETO: " + questions[nrYes]))
 		.then(wait((c) => {
@@ -953,8 +954,8 @@ let NO_STATUS = [
 	(cnv, w, h) => {
 		disableAll();
 		return exec((c) => {removeYesButtons(0)}).then(join(changeBackground(new vec4(255, 255, 255, 1), 4000), 
-			writeText("Sei andata davvero vicina a farmi infuriare")
-			.then(writeText("Fammi calmare un attimo..."))))
+			writeText("sei andata davvero vicina a farmi infuriare")
+			.then(writeText("fammi calmare un attimo..."))))
 			.then(exec(enableAll));
 	},],
 
@@ -972,8 +973,8 @@ let NO_STATUS = [
 		});
 
 		return changeBackground(new vec4(255, 100, 80, 1), 1000)
-			.then(writeText("Se sei cosi motivata a premere il pulsante \"no\","))
-			.then(writeText("non avrai tanti problemi a premerlo ancora.."))
+			.then(writeText("se sei cosi motivata a premere il pulsante \"no\","))
+			.then(writeText("non avrai tanti problemi ad impegnarti un po' di più per premerlo"))
 			.then(exec((context) => {noMovement.run()}))
 			.then(exec(enableAll));
 	},
@@ -986,7 +987,7 @@ let NO_STATUS = [
 			join(
 			changeBackground(new vec4(255, 255, 255, 1), 4000), 
 			writeText("Non volevo arrivare a questo punto")
-			.then(writeText("potevi prendere la strada breve")))))
+			.then(writeText("potevi prendere la strada piu breve con il \"si\"")))))
 			.then(exec(enableAll));
 	},],
 
@@ -998,7 +999,7 @@ let NO_STATUS = [
 		return join(
 			changeBackground(new vec4(255, 80, 60, 1), 100),
 			exec((c) => {noSpeed = 400})
-			.then(writeText("CORRI CAZZO CORRI"))
+			.then(writeText("CORRI CORRI!"))
 		).then(exec(enableAll));
 	},
 	(cnv, w, h) => {
@@ -1009,8 +1010,8 @@ let NO_STATUS = [
 			linear(buttonNo.position, positions.startNo, 400, (v) => {buttonNo.setPosition(v); }),
 			join(
 			changeBackground(new vec4(255, 255, 255, 1), 4000), 
-			writeText("Perche mi tratti così male?")
-			.then(writeText("dai su riprendiamo da dove eravamo,")))))
+			writeText("perchè mi tratti così male?")
+			.then(writeText("dai su riprendiamo da dove eravamo")))))
 			.then(exec(enableAll));
 	},],
 
@@ -1042,7 +1043,7 @@ let NO_STATUS = [
 		return exec((c) => { removeYesButtons(200) })
 			.then(changeBackground(new vec4(255, 60, 40, 1), 1000))
 			.then(writeText("sei davvero motivata a non seguire le istruzione eh"))
-			.then(writeText("io sono davvero motivato a farti premere si"))
+			.then(writeText("io sono davvero motivato a farti premere \"si\""))
 			.then(writeText("vediamo chi vince"))
 			.then(exec((c) => {yesMovement.run()}))
 			.then(wait(null, 5000))
@@ -1060,7 +1061,7 @@ let NO_STATUS = [
 					linear(buttonNo.position, positions.startNo, 400, (v) => {buttonNo.setPosition(v); }),
 					join(
 						changeBackground(new vec4(255, 255, 255, 1), 4000), 
-						writeText("Perche mi tratti così male?")
+						writeText("perchè mi tratti così male?")
 							.then(writeText("dai su riprendiamo da dove eravamo,"))
 					)
 				)
@@ -1103,7 +1104,7 @@ let NO_STATUS = [
 		shieldMovement.destroy = true;
 		shield.destroy = true;
 
-		return writeText("allora a quanto pare il bastone funziona eh?")
+		return writeText("allora a quanto pare il bastone funziona")
 			.then(writeText("ricominciamo da capo"))
 			.then(exec((c) => {removeYesButtons(0)}))
 			.then(
@@ -1174,14 +1175,11 @@ let nrNo = 0;
 let nrYes = 0;
 let questions = [
 	"mi ami?",
-	"tanto?",
-	"tanto, tanto??",
+	"mi ami tanto?",
 	"ma sei solo mia????",
 	"vorrai stare sempre con me?",
-	"per sempre?",
-	"sei sicura???",
-	"sei solo mia?",
-	"di nessun altro mai?",
+	"sei sicura di volere solo me???",
+	"vorrai solamente me e mi amerai sempre?",
 ];
 
 function yes() {
