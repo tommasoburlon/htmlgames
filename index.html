@@ -1,0 +1,1334 @@
+<html>
+
+<head>
+
+<style>
+
+#canvas {
+	top: 0;
+	left: 0;
+	width: 100%;
+	height: 100%;
+	position: absolute;
+}
+
+</style>
+
+<script>
+
+class vec2 {
+	constructor(x = 0, y = 0) { this.x = x; this.y = y; }
+
+	add(v) { this.x += v.x; this.y += v.y; return this; }
+	sub(v) { this.x -= v.x; this.y -= v.y; return this; }
+	mul(k) { this.x *= k; this.y *= k; return this; }
+	div(k) { this.x /= k; this.y /= k; return this; }
+	len2() { return this.x * this.x + this.y * this.y; }
+	len() { return Math.sqrt(this.len2()); }
+
+	normalize(){ return this.div(this.len()); }
+	clone() { return new vec2(this.x, this.y); }
+	assign(v) { this.x = v.x; this.y = v.y; return this; }
+
+	static randSquare(min = new vec2(), max = new vec2()) { return this.max.clone().sub(this.min).mul(Math.random()).add(this.min); }
+	static randCircle(radius = [0, 1], angle = [0, 2 * Math.PI]) { 
+		let r = (radius[1] - radius[0]) * Math.random() + radius[0];
+		let a = (angle[1] - angle[0]) * Math.random() + angle[0];
+		return new vec2(r * Math.cos(a), r * Math.sin(a));
+	}
+}
+
+class vec4 {
+	constructor(x = 0, y = 0, z = 0, w = 0) { this.x = x; this.y = y; this.z = z; this.w = w; }
+
+	add(v) { this.x += v.x; this.y += v.y; this.z += v.z; this.w += v.w; return this; }
+	sub(v) { this.x -= v.x; this.y -= v.y; this.z -= v.z; this.w -= v.w; return this; }
+	mul(k) { this.x *= k; this.y *= k; this.z *= k; this.w *= k; return this; }
+	div(k) { this.x /= k; this.y /= k; this.z /= k; this.w /= k; return this; }
+	len2() { return this.x * this.x + this.y * this.y + this.z * this.z + this.w * this.w; }
+	len() { return Math.sqrt(this.len2()); }
+
+	normalize(){ return this.div(this.len()); }
+	clone() { return new vec4(this.x, this.y, this.z, this.w); }
+	assign(v) { this.x = v.x; this.y = v.y; this.z = v.z; this.w = v.w; return this; }
+
+	toRGBA(){ return "rgba(" + this.x + "," + this.y + "," + this.z + "," + this.w + ")"; }
+
+	static randSquare(min = new vec4(), max = new vec4()) { 
+		return new vec4(
+			Math.rand(min.x, max.x),
+			Math.rand(min.y, max.y),
+			Math.rand(min.z, max.z),
+			Math.rand(min.w, max.w),
+		);
+	}
+}
+
+class vecs {
+	constructor() { this.arr = [] }
+	push(v) { this.arr.push(v.clone()); return this; }
+	get(i) { return this.arr[i]; }
+
+	add(v) { for(let i in this.arr) { this.arr[i].add(v.arr[i])} return this; }
+	sub(v) { for(let i in this.arr) { this.arr[i].sub(v.arr[i])} return this; }
+	mul(k) { for(let i in this.arr) { this.arr[i].mul(k)} return this; }
+	div(k) { for(let i in this.arr) { this.arr[i].div(k)} return this; }
+
+	clone() { let rv = new vecs(); for(let v of this.arr) {rv.push(v) } return rv; }
+	assign(v) { for(let i in this.arr) { this.arr[i].assign(v.arr[i])} return this; }
+}
+
+// Utility functions
+function isInsideRect(o, s, p) { return o.x < p.x && o.x + s.x >= p.x && o.y < p.y && o.y + s.y >= p.y; }
+
+function now() { return new Date().getTime(); }
+
+String.prototype.replaceAt = function(index, replacement) {
+	return this.substring(0, index) + replacement + this.substring(index + replacement.length);
+}
+
+Math.randStr = function(n, chrs) {
+	let arr = new Array(n);
+	for (let i = 0; i < n; i++) 
+		arr[i] = chrs[Math.floor(Math.random() * chrs.length)];
+	return arr.join("");
+}
+
+Math.randMap = function(i, min = 0, max = 1) {
+	return (max - min) * (1 + 0.5 * Math.sin(12312432.23234 * i)) + min;
+}
+
+Math.rand = function(min = 0, max = 1) {
+	return (max - min) * Math.random() + min;
+}
+
+function linear(start, end, duration, callback) {
+	return new DrawNode( (context) => {
+		if (context.node.params.time == null) {
+			context.node.params.time = context.t;
+			context.node.params.target = context.node.params.start.clone();
+		}
+
+		let p = context.node.params;
+		let t = (context.t - p.time) / p.duration;
+
+		context.node.params.target.assign(p.end).sub(p.start).mul(Math.min(t, 1)).add(p.start);
+
+		if (p.callback)
+			p.callback(context.node.params.target.clone());
+
+		if (t > 1)
+			context.node.destroy = true;
+	}, 0, {start: start.clone(), end: end.clone(), duration: duration, callback: callback});
+}
+
+
+function wait(func = null, millis = 0, params = null) {
+	return new DrawNode( (context) => {
+		if (context.t - context.node.startTime < millis) return;
+		if (func !== null) func(context);
+		context.node.destroy = true;
+	}, 0, params)
+}
+
+function exec(func, params = null) {
+	return wait(func, 0, params);
+}
+
+function join(node1, node2) {
+	return new DrawNode( (context) => {
+		if (!context.node.params) {
+			node1.run();
+			node2.run();
+			context.node.params = true;
+		}
+
+		if (node1.destroy && node2.destroy) {
+			context.node.destroy = true;
+		}
+	}, 0, false)
+}
+
+function wait_loop(func, millis = 0, params = null) {
+	let waited = 0;
+	return new DrawNode( (context) => {
+
+		if (millis > 0) {
+			if (context.t - context.node.startTime < millis + waited) return;
+			waited += millis;
+		}
+		if (!func(context))
+			context.node.destroy = true;
+	}, 0, params)
+}
+
+function wrap(node) {
+	return new DrawNode((context) => {
+		if (node.destroy) context.node.destroy = true;
+		if (context.node.params === false) {
+			context.node.params = true;
+			node.run();
+		}
+	}, 0, false);
+}
+
+function changeBackground(value, time) { return linear(backgroundColor, value, time, (v) => {backgroundColor = v}); }
+
+function setTextSize(c, text, position, size) {
+			position = position.clone();
+			size = size.clone();
+
+			let textSize = text.getSize(c);
+			text.setHeight(textSize.y * Math.min(size.y / textSize.y, size.x / textSize.x));
+			textSize = text.getSize(c);
+			text.setPosition(position.add(size.sub(textSize).mul(0.5)));
+}
+
+// Graphics objectss
+class Button {
+	constructor(text) {
+		this.text = new Text(text);
+		this.position = new vec2();
+		this.size = new vec2();
+		this.mustUpdate = true;
+
+		this.pressed = false;
+		this.disabled = false;
+	}
+
+	isInside(p) { return isInsideRect(this.position.clone().sub(this.size.clone().div(2)), this.size, p); }
+
+	draw(context) {
+		let c = context.ctx;
+		let dT = context.dT;
+
+		c.fillStyle = "white";
+
+		if (this.onUpdate) {
+			this.onUpdate(dT);
+		}
+
+		if (this.disabled) {
+			this.pressed = false;
+			c.fillStyle = "rgb(200, 200, 200)";
+		} else {
+			if (this.isInside(cursor.position)){
+				c.fillStyle = "orange";
+
+				if (cursor.click) {
+					c.fillStyle = "red";
+					this.pressed = (this.pressed === false ? 0 : this.pressed) + dT;
+				}
+			} else {
+				this.pressed = false;
+			}
+
+			if (this.pressed != false && cursor.click == false) {
+				this.onClick();
+				this.pressed = false;
+			}
+		}
+
+		c.strokeStyle = "black";
+
+		c.beginPath();
+		c.rect(this.position.x - this.size.x / 2, this.position.y - this.size.y / 2, this.size.x, this.size.y);
+		c.stroke();
+		c.fill();
+
+
+		if (this.mustUpdate) {
+			setTextSize(c, this.text, this.position.clone().sub(this.size.clone().div(2)), this.size);
+			this.mustUpdate = false;
+		}
+
+		this.text.draw(context);
+	}
+
+	disable() { this.disabled = true; return this; }
+	enable() { this.disabled = false; return this; }
+	setText(value) { this.text.value = value; this.mustUpdate = true; return this; }
+	setPosition(p) { this.position = p; this.text.setPosition(p); this.mustUpdate = true; return this; }
+	setSize(s) { this.size = s; this.mustUpdate = true; return this; }
+	setOnClick(f) { this.onClick = f.bind(this); return this; }
+	setOnUpdate(f) { if (f == null) {this.onUpdate = null;} else { this.onUpdate = f.bind(this); } return this; }
+	onClick(){}
+}
+
+class Text {
+	constructor(text) {
+		this.value = text;
+		this.position = new vec2();
+		this.size = 50;
+		this.fontFamily = "Courier New";
+		this.strokeColor = new vec4(255, 255, 255, 1);
+		this.fillColor = new vec4(0, 0, 0, 255);
+		this.textBaseline = "top";
+		this.textAlign = "left";
+	}
+
+	draw(context) {
+		let c = context.ctx;
+
+		c.textBaseline = this.textBaseline;
+		c.textAlign = this.textAlign;
+		c.font = this.size + "px " + this.fontFamily;
+		c.fillStyle = this.fillColor.toRGBA();
+		c.strokeStyle = this.strokeColor.toRGBA();
+		c.lineWidth = 1;
+
+		c.fillText(this.value, this.position.x, this.position.y);
+		//c.strokeText(this.value, this.position.x, this.position.y);
+	}
+
+	getSize(c) {
+		c.textBaseline = "top";
+		c.textAlign = "left";
+		c.font = this.size + "px " + this.fontFamily;
+		c.fillStyle = this.color;
+		let measure = c.measureText(this.value);
+		return new vec2(measure.width, this.size);
+	}
+
+	setHeight(size) { this.size = size; return this; }
+
+	setPosition(p) { this.position = p; return this; }
+}
+
+class Cursor {
+	constructor() {
+		this.position = new vec2(0, 0);
+		this.size = 20;
+		this.sensitivity = 0.8;
+		this.click = false;
+	}
+
+	draw(context) {
+		let c = context.ctx;
+
+		if (shield && !shield.destroy) {
+			let r = this.position.clone().sub(shield.value.position);
+
+			if (r.len() < shield.value.radius) { 
+				this.position.assign(shield.value.position).add(r.normalize().mul(shield.value.radius));
+			}
+		}
+
+		c.lineWidth = 2;
+		c.strokeStyle = "black";
+		c.fillStyle = "white";
+
+		let ang = Math.PI / 4;
+		let phase =  Math.PI / 2;
+		let x = this.position.x;
+		let y = this.position.y;
+		let s = this.size;
+
+		c.beginPath();
+		c.moveTo(x, y);
+		c.lineTo(x, y + s);
+		c.lineTo(x + 0.7 * s * Math.cos(phase - ang / 2), y + 0.7 * s * Math.sin(phase - ang / 2));
+		c.lineTo(x + s * Math.cos(phase - ang), y + s * Math.sin(phase - ang));
+		c.lineTo(x, y);
+		c.stroke();
+		c.fill();
+	}
+
+	setPosition(p) { this.position = p; return this; }
+
+	onMove(e) {
+		let mov = new vec2(e.movementX, e.movementY);
+		this.position.add(mov.mul(this.sensitivity));
+	}
+
+	onDown(e) { this.click = true; }
+	onUp(e) { this.click = false; }
+}
+
+
+class Shield {
+	constructor(position) {
+		this.position = position;
+		this.radius = 120;
+	}
+
+	draw(context) {
+		let c = context.ctx;
+
+		this.radius = 110 + 5 * Math.cos(2 * Math.PI * context.t / (2.5 * 1000));
+
+		c.lineWidth = 3;
+		c.strokeStyle = "blue";
+		c.fillStyle = "rgb(120, 120, 255, 0.5)";
+
+		let ang = Math.PI / 4;
+		let phase =  Math.PI / 2
+		c.beginPath();
+		c.arc(this.position.x, this.position.y, this.radius, 0, 2 * Math.PI);
+		c.stroke();
+		c.fill();
+	}
+}
+class Particle {
+	constructor(position, speed, color, size, duration, fadeOut) {
+		this.speed = speed;
+		this.position = position;
+		this.color = color;
+		this.size = size;
+		this.duration = duration;
+		this.totalDuration = duration;
+		this.fadeOut = fadeOut;
+
+		this.line = [];
+	}
+
+	draw(context) {
+		if (this.fadeOut) {
+			this.color.w = this.duration / this.totalDuration;
+		}
+		let c = context.ctx;
+		let fadedColor = this.color.clone();
+		fadedColor.w *= 0.5;
+
+		c.strokeStyle = "rgba(0,0,0,0)";
+		c.fillStyle = fadedColor.toRGBA();
+
+		if (this.line.length > 0) {
+			c.beginPath();
+			let start = this.line[this.line.length - 1];
+			c.moveTo(start.x, start.y);
+
+			for (let i = this.line.length - 2; i >= 0; i--) {
+				let len = this.size * (1 - i / this.line.length);
+				let d = this.line[i].clone().sub(this.line[i + 1]);
+				let r = new vec2(d.y, -d.x).normalize().mul(len).add(this.line[i + 1]);
+				c.lineTo(r.x, r.y);
+			}
+
+			for (let i = 0; i < this.line.length - 1; i++) {
+				let len = this.size * (1 - i / this.line.length);
+				let d = this.line[i].clone().sub(this.line[i + 1]);
+				let r = new vec2(-d.y, d.x).normalize().mul(len).add(this.line[i + 1]);
+				c.lineTo(r.x, r.y);
+			}
+			c.lineTo(start.x, start.y);
+			c.stroke();
+			c.fill();
+		}
+
+
+		if (this.duration > 0) {
+
+			c.fillStyle = this.color.toRGBA();
+
+			c.beginPath();
+			c.arc(this.position.x, this.position.y, this.size, 0, 2 * Math.PI);
+			c.stroke();
+			c.fill();
+
+			c.fillStyle = this.color.toRGBA();
+
+			this.speed.add(new vec2(0, 98.1).mul(context.dT));
+			this.position.add(this.speed.clone().mul(context.dT));
+
+			this.line.unshift(this.position.clone());
+
+			if (this.line.length > 50)
+				this.line.pop();
+		} else {
+			this.line.pop();
+		}
+
+		this.duration -= context.dT;
+		if (this.duration < 0 && this.line.length <= 0)
+			context.node.destroy = true;
+	}
+}
+
+let drawables = null;
+
+let text = null;
+let buttonYes = null;
+let buttonNo = null;
+let cursor = null;
+
+let yesButtons = [];
+function removeYesButtons(n = 0) {
+	while(yesButtons.length > n) {
+		yesButtons[yesButtons.length - 1].destroy = true;
+		yesButtons.pop();
+	}
+}
+
+let startCreating = false;
+
+class DrawNode {
+	constructor(drawable, zIndex = Infinity, params = null) {
+		this.value = drawable;
+		this.zIndex = zIndex;
+		this.startTime = null;
+		this.prev = null;
+		this.next = null;
+		this.destroy = false;
+		this.params = params;
+		this.nextAnimations = [];
+		this.parent = null;
+	}
+
+	start() { this.startTime = now(); }
+
+	attach(node) { this.nextAnimations.push(node); node.parent = this; }
+	then(node) { this.attach(node); return node; }
+
+	run() {
+		let temp;
+		for (temp = this; temp.parent != null; temp = temp.parent) {
+			if (temp.startTime != null) return;
+		}
+		insertDrawable(temp);
+	}
+}
+
+function insertDrawable(node) {
+	if (drawables == null || drawables.zIndex < node.zIndex) {
+		node.next = drawables;
+		if (drawables) drawables.prev = node;
+		drawables = node;
+	} else {
+		let prev = null, temp = null;
+		for (temp = drawables; temp != null; temp = temp.next) {
+
+			if (temp.zIndex < node.zIndex) {
+				node.prev = temp.prev;
+				node.next = temp;
+				temp.prev.next = node;
+				temp.prev = node;
+
+				node.start();
+				return node;
+			}
+			prev = temp;
+		}
+		
+		prev.next = node;
+		node.prev = prev;
+	}
+
+	node.start();
+	return node;
+}
+
+let backgroundColor = new vec4(255, 255, 255, 1);
+
+function loop(cnv, ctx, preT = new Date().getTime()) {
+	let t = new Date().getTime();
+	let dT = (t - preT) / 1000;
+
+	let context = {
+		cnv: cnv,
+		ctx: ctx,
+		dT: dT,
+		t: t,
+		node: null,
+	};
+
+	ctx.clearRect(0, 0, cnv.width, cnv.height);
+	ctx.fillStyle = backgroundColor.toRGBA();
+	ctx.fillRect(0, 0, cnv.width, cnv.height);
+	for (let temp = drawables; temp != null; temp = temp.next) {
+		context.node = temp;
+
+		if (temp.destroy) {
+
+			for (let o of temp.nextAnimations)
+				insertDrawable(o);
+
+			if (temp.prev == null) {
+				drawables = temp.next;
+				drawables.prev = null;
+			} else {
+				temp.prev.next = temp.next;
+				if (temp.next)
+					temp.next.prev = temp.prev;
+			}
+		} else {
+			if (typeof temp.value == 'function')
+				temp.value(context);
+			if (typeof temp.value == 'object')
+				temp.value.draw(context);
+		}
+	}
+
+	window.requestAnimationFrame(function(){ loop(cnv, ctx, t) });
+}
+
+function disableAll() {
+	for (let temp = drawables; temp != null; temp = temp.next)
+		if (temp.value instanceof Button)
+			temp.value.disable();
+}
+
+function enableAll() {
+	for (let temp = drawables; temp != null; temp = temp.next)
+		if (temp.value instanceof Button)
+			temp.value.enable();
+}
+
+let texts = [];
+let textAnimation = null;
+
+function writeText(value, params = {TEXT_TIME: 10, NEW_LINE_SPEED: 100}) {
+	let cnv = document.getElementById("canvas");
+	let w = cnv.width, h = cnv.height;
+
+	let MAX_TEXT_LINE = 6;
+	let TEXT_SPEED = 10;
+	let NEW_LINE_SPEED = 100;
+
+	// create new text node
+	let createNew = exec((context) => {
+
+		if (texts.length >= MAX_TEXT_LINE) {
+			texts[MAX_TEXT_LINE - 1].destroy = true;
+			texts.pop();
+		}
+
+		let text = new Text(value).setHeight(50);
+
+		texts.unshift(insertDrawable(new DrawNode(text, 0)));
+
+		setTextSize(
+			context.ctx,
+			text,
+			new vec2(0, h / 2 - 60),
+			new vec2(w, 50)
+		);
+
+		text.value = "";
+	});
+
+	// scroll previous text nodes
+	let scrollDown = new DrawNode((context) => {
+
+		let t = context.t - context.node.startTime;
+
+		for (let i = 1; i < texts.length; i++) {
+			setTextSize(
+				context.ctx,
+				texts[i].value,
+				new vec2(0, h / 2 - 60 - 50 * (i + Math.min(1, t / NEW_LINE_SPEED) - 1)),
+				new vec2(w, 50)
+			);
+
+			let alpha = (1 - (i + Math.min(1, t / NEW_LINE_SPEED) - 1) / texts.length);
+			let n = 2;
+			alpha = (Math.exp(n * alpha) - 1) / (Math.pow(Math.E, n) - 1);
+			
+			texts[i].value.strokeColor.w = alpha;
+			texts[i].value.fillColor.w = alpha;
+		}
+
+		if (t > NEW_LINE_SPEED)
+			context.node.destroy = true;
+	});
+
+	// write new text
+	let writeText = new DrawNode((context) => {
+		let t = context.t - context.node.startTime;
+
+		let index = context.node.params.index;
+		let value = context.node.params.value;
+
+		if (t < index * TEXT_SPEED)
+			return;
+
+		while(t > index * TEXT_SPEED && index < value.length) {
+			texts[0].value.value += value[index++];
+		}
+
+		context.node.params.index = index;
+		if (index >= value.length) {
+			context.node.destroy = true;
+		}
+
+	}, 0, {index: 0, value: value});
+
+	return wrap(createNew.then(scrollDown).then(writeText));
+}
+
+
+
+
+let sizes;
+let positions;
+
+let animations = {
+
+};
+
+
+let noMovement = undefined;
+let yesMovement = undefined;
+let shieldMovement = undefined;
+let noSpeed = 100;
+let cnv;
+let shield = undefined;
+let buttonsSize = new vec2(100, 30);
+let buttonMargin = 60;
+
+let NO_STATUS = [
+	[(cnv, w, h) => {
+		disableAll(); return writeText("Ah forse non hai capito, la domanda era: " + questions[nrYes]).then(wait(enableAll));
+	}],
+
+	[(cnv, w, h) => {
+		disableAll(); return writeText("Ma sai leggere, rispondi alla domanda: " + questions[nrYes]).then(wait(enableAll));
+	},],
+
+	[(cnv, w, h) => {
+		disableAll();
+
+		let start = new vecs()
+			.push(buttonNo.size)
+			.push(buttonYes.size);
+		let end = new vecs()
+			.push(sizes.small)
+			.push(sizes.big);
+
+		return writeText("Te la rendero piu facile....").then(linear(start, end, 500, (v) => {
+			buttonNo.setSize(v.get(0));
+			buttonYes.setSize(v.get(1));
+		})).then(wait(enableAll));
+
+	},
+	(cnv, w, h) => {
+		disableAll();
+
+		let start = new vecs()
+			.push(buttonNo.size)
+			.push(buttonYes.size);
+		let end = new vecs()
+			.push(sizes.standard)
+			.push(sizes.standard);
+
+		return join(writeText("Phew mi avevi fatto preoccupare"), (linear(start, end, 500, (v) => {
+			buttonNo.setSize(v.get(0));
+			buttonYes.setSize(v.get(1));
+		}))).then(wait(enableAll, 1000));
+	}],
+
+	[(cnv, w, h) => {
+		disableAll();
+
+		let start = new vecs()
+			.push(buttonNo.position)
+			.push(buttonYes.position);
+		let end = new vecs()
+			.push(positions.decreaseNo)
+			.push(positions.increaseYes);
+
+		return writeText("Forse hai bisogno di qualche aiuto in più... ").then(linear(start, end, 500, (v) => {
+			buttonNo.setPosition(v.get(0));
+			buttonYes.setPosition(v.get(1));
+		})).then(wait(enableAll));
+	},
+	(cnv, w, h) => {
+		disableAll();
+
+		let start = new vecs()
+			.push(buttonNo.position)
+			.push(buttonYes.position)
+			.push(buttonNo.size)
+			.push(buttonYes.size);
+		let end = new vecs()
+			.push(positions.startNo)
+			.push(positions.startYes)
+			.push(sizes.standard)
+			.push(sizes.standard);
+
+		return join(writeText("Hai bisogno degli occhiali probabilmente"), linear(start, end, 500, (v) => {
+			buttonNo.setPosition(v.get(0));
+			buttonYes.setPosition(v.get(1));
+			buttonNo.setSize(v.get(2));
+			buttonYes.setSize(v.get(3));
+		})).then(wait(enableAll));
+	},],
+
+	[(cnv, w, h) => {
+		let PLAY_SIZE = 4;
+		let NR_SHUFFLES = 10;
+
+		for (let i = 0; i < PLAY_SIZE - 2; i++) {
+			yesButtons.push(new DrawNode(createYesButton()));
+			yesButtons[i].value.setPosition(positions.choice(i + 2, PLAY_SIZE)).setSize(new vec2(1, 1));
+			insertDrawable(yesButtons[i]);
+		}
+		disableAll();
+
+		let start = new vecs()
+			.push(buttonNo.position)
+			.push(buttonYes.position)
+			.push(buttonNo.size)
+			.push(buttonYes.size)
+			.push(new vec2(1, 1));
+		let end = new vecs()
+			.push(positions.choice(1, PLAY_SIZE))
+			.push(positions.choice(0, PLAY_SIZE))
+			.push(sizes.standard)
+			.push(sizes.standard)
+			.push(sizes.standard);
+
+		let setGame = linear(start, end, 500, (v) => {
+			buttonNo.setPosition(v.get(0));
+			buttonYes.setPosition(v.get(1));
+
+			buttonNo.setSize(v.get(2));
+			buttonYes.setSize(v.get(3));
+
+			for (let n of yesButtons)
+				n.value.setSize(v.get(4).clone());
+		});
+
+		let removeLabel = wait( (context) => {
+			for (let n of yesButtons)
+				n.value.setText("x");
+			buttonNo.setText("x");
+			buttonYes.setText("x");
+		}, 1000);
+
+		let tempButtons = [buttonYes, buttonNo];
+		for (let n of yesButtons)
+				tempButtons.push(n.value);
+
+		let shuffle = function() {
+
+			let arr = [];
+			for (let i in tempButtons)
+				arr.push(i);
+
+			
+			let i1, j1, i2;
+			j1 = Math.floor(Math.random() * arr.length);
+			i1 = arr[j1]
+			arr[j1] = arr[arr.length - 1];
+			arr.pop();
+
+			i2 = arr[Math.floor(Math.random() * arr.length)];
+
+			console.log(i1, i2);
+
+			let start = new vecs()
+				.push(positions.choice(i1, tempButtons.length))
+				.push(positions.choice(i2, tempButtons.length));
+
+			let end = new vecs()
+				.push(positions.choice(i2, tempButtons.length))
+				.push(positions.choice(i1, tempButtons.length));
+
+			let swap = linear(start, end, 400, (v) => {
+				tempButtons[i1].setPosition(v.get(0));
+				tempButtons[i2].setPosition(v.get(1));
+			});
+
+			return wrap(swap.then(exec((context) => {
+				let c = tempButtons[i1];
+				tempButtons[i1] = tempButtons[i2];
+				tempButtons[i2] = c;
+			})));
+		};
+
+		let node = writeText("Ufff forse hai solo bisogno di un piccolo gioco")
+			.then(wait(null, 500))
+			.then(setGame)
+			.then(removeLabel)
+			.then(wait(null, 500));
+
+		for (let i = 0; i < NR_SHUFFLES; i++)
+			node = node.then(shuffle());
+
+		return node.then(exec(enableAll));
+
+
+	},
+	(cnv, w, h) => {
+		buttonNo.setText("no");
+		buttonYes.setText("si");
+
+		start = new vecs()
+			.push(buttonNo.position)
+			.push(buttonYes.position);
+
+		end = new vecs()
+			.push(positions.startNo)
+			.push(positions.startYes);
+
+		let toDefault = linear(start, end, 400, (v) => {
+			buttonNo.setPosition(v.get(0));
+			buttonYes.setPosition(v.get(1));
+		});
+
+		start = sizes.standard;
+
+		end = new vec2(1, 1);
+
+		let killButtons = linear(start, end, 400, (v) => {
+			for (let btn of yesButtons)
+				btn.value.setSize(v.clone())
+		});
+
+		return join(writeText("Hai perso ahahahahah"), killButtons
+			.then(wait((context) => {
+				for (let btn of yesButtons)
+					btn.destroy = true;
+				yesButtons = [];
+			}))).then(toDefault)
+			.then(exec(enableAll));
+	},],
+
+	[(cnv, w, h) => {
+		buttonNo.setText("no");
+		buttonYes.setText("si");
+
+		start = new vecs()
+			.push(buttonNo.position)
+			.push(buttonYes.position);
+
+		end = new vecs()
+			.push(positions.startNo)
+			.push(positions.startYes);
+
+		let toDefault = linear(start, end, 600, (v) => {
+			buttonNo.setPosition(v.get(0));
+			buttonYes.setPosition(v.get(1));
+		});
+
+		start = sizes.standard;
+
+		end = new vec2(1, 1);
+
+		let killButtons = linear(start, end, 600, (v) => {
+			for (let btn of yesButtons)
+				btn.value.setSize(v.clone())
+		});
+
+
+		return join(
+			writeText("mi stai iniziando a far arrabbiare. premi il pulsante \"si\""), 
+			join(
+				changeBackground(new vec4(255, 220, 200, 1), 1200), 
+				killButtons
+					.then(exec((c) => {removeYesButtons(0)})).then(toDefault)
+			)
+		).then(exec(enableAll));
+	},
+	(cnv, w, h) => {
+		return join(
+			writeText("spero tu capisca che servirà di piu per farti perdonare").then(
+				writeText("che dici di iniziare premendo piu volte il pulsante \"si\"")
+			), 
+			changeBackground(new vec4(255, 255, 255, 1), 1200)
+		)
+	},],
+
+
+	[(cnv, w, h) => {
+		let NR_BUTTONS = 1000;
+
+		let minr, maxr;
+
+		maxr = Math.max(w, h) / 2;
+		minr = positions.startNo.clone().sub(positions.startYes).len();
+
+		disableAll();
+		return join(
+			writeText("BASTA, BASTA")
+				.then(writeText("HAI ROTTO IL CAZZO")),
+			changeBackground(new vec4(255, 160, 140, 1), 1000)
+		).then(writeText("MI RIPETO: " + questions[nrYes]))
+		.then(wait((c) => {
+			for (let i = 0; i < NR_BUTTONS; i++)
+				yesButtons.push(insertDrawable(new DrawNode(createYesButton().setPosition(vec2.randCircle([minr, maxr]).add(new vec2(w / 2, h / 2))))));
+		}, 300)).then(exec(enableAll));
+	},
+	(cnv, w, h) => {
+		disableAll();
+		return exec((c) => {removeYesButtons(0)}).then(join(changeBackground(new vec4(255, 255, 255, 1), 4000), 
+			writeText("Sei andata davvero vicina a farmi infuriare")
+			.then(writeText("Fammi calmare un attimo..."))))
+			.then(exec(enableAll));
+	},],
+
+	[(cnv, w, h) => {
+		disableAll();
+
+		noMovement = wait_loop((context) => {
+				let p = buttonNo.position.clone();
+				let r = p.clone().sub(cursor.position).normalize();
+				p.add(r.mul(noSpeed * context.dT))
+				p.x = Math.min(w - buttonNo.size.x / 2, Math.max(buttonNo.size.x / 2, p.x));
+				p.y = Math.min(h - buttonNo.size.y / 2, Math.max(buttonNo.size.y / 2, p.y));
+				buttonNo.setPosition(p);
+				return true;
+		});
+
+		return changeBackground(new vec4(255, 100, 80, 1), 1000)
+			.then(writeText("Se sei cosi motivata a premere il pulsante \"no\","))
+			.then(writeText("non avrai tanti problemi a premerlo ancora.."))
+			.then(exec((context) => {noMovement.run()}))
+			.then(exec(enableAll));
+	},
+	(cnv, w, h) => {
+		disableAll();
+		noMovement.destroy = true;
+
+		return exec((c) => {removeYesButtons(0)}).then(join(
+			linear(buttonNo.position, positions.startNo, 400, (v) => {buttonNo.setPosition(v); }),
+			join(
+			changeBackground(new vec4(255, 255, 255, 1), 4000), 
+			writeText("Non volevo arrivare a questo punto")
+			.then(writeText("potevi prendere la strada breve")))))
+			.then(exec(enableAll));
+	},],
+
+
+	[(cnv, w, h) => {
+		disableAll();
+
+
+		return join(
+			changeBackground(new vec4(255, 80, 60, 1), 100),
+			exec((c) => {noSpeed = 400})
+			.then(writeText("CORRI CAZZO CORRI"))
+		).then(exec(enableAll));
+	},
+	(cnv, w, h) => {
+		disableAll();
+		noMovement.destroy = true;
+
+		return exec((c) => {removeYesButtons(0)}).then(join(
+			linear(buttonNo.position, positions.startNo, 400, (v) => {buttonNo.setPosition(v); }),
+			join(
+			changeBackground(new vec4(255, 255, 255, 1), 4000), 
+			writeText("Perche mi tratti così male?")
+			.then(writeText("dai su riprendiamo da dove eravamo,")))))
+			.then(exec(enableAll));
+	},],
+
+	[(cnv, w, h) => {
+		disableAll();
+
+
+		for (let y of yesButtons)
+			y.speed = vec2.randCircle([0.5 * noSpeed, 1.5 * noSpeed]);
+
+		yesMovement = wait_loop((context) => {
+				for (let y of yesButtons) {
+					let pre, p = y.value.position.clone();
+
+					p.add(y.speed.clone().mul(context.dT));
+					pre = p.clone();
+					p.y = Math.min(h, Math.max(0, p.y));
+					p.x = Math.min(w, Math.max(0, p.x));
+
+					if (p.y != pre.y) y.speed.y *= -1;
+					if (p.x != pre.x) y.speed.x *= -1;
+
+					y.value.setPosition(p);
+				}
+
+				return true;
+		});
+
+		return exec((c) => { removeYesButtons(200) })
+			.then(changeBackground(new vec4(255, 60, 40, 1), 1000))
+			.then(writeText("sei davvero motivata a non seguire le istruzione eh"))
+			.then(writeText("io sono davvero motivato a farti premere si"))
+			.then(writeText("vediamo chi vince"))
+			.then(exec((c) => {yesMovement.run()}))
+			.then(wait(null, 5000))
+			.then(exec(enableAll));
+	},
+	(cnv, w, h) => {
+		disableAll();
+		noMovement.destroy = true;
+		yesMovement.destroy = true;
+
+		return exec((c) => {removeYesButtons(0)}).then(
+			join(
+				linear(buttonYes.position, positions.startYes, 400, (v) => {buttonYes.setPosition(v); }),
+				join(
+					linear(buttonNo.position, positions.startNo, 400, (v) => {buttonNo.setPosition(v); }),
+					join(
+						changeBackground(new vec4(255, 255, 255, 1), 4000), 
+						writeText("Perche mi tratti così male?")
+							.then(writeText("dai su riprendiamo da dove eravamo,"))
+					)
+				)
+			)
+		).then(exec(enableAll));
+
+	},],
+
+
+	[(cnv, w, h) => {
+		disableAll();
+
+		yesMovement.destroy = true;
+
+		shieldMovement = wait_loop((c) => {
+			shield.value.position = buttonNo.position.clone();
+			return true;
+		});
+
+		return writeText("mi hai stufato, questo fara più male a me che a te.")
+			.then(writeText("$ let console = window.getAdminConsole();"))
+			.then(writeText("$ let defenses = console.getDefense();"))
+			.then(writeText("$ let shield = defenses.createShield(true);"))
+			.then(exec((c) => { shield = insertDrawable(new DrawNode(new Shield(new vec2(w / 2, h / 2)), -Infinity)) }))
+			.then(wait(null, 1000))
+			.then(writeText("$ let no_button = console.retrieveButtonFromText(\"no\");"))
+			.then(wait(null, 1000))
+			.then(writeText("$ shield.attachTo(no_button);"))
+			.then(exec((c) => {shieldMovement.run() }))
+			.then(writeText("$ exit"))
+			.then(writeText("spero tu sia contenta"))
+			.then(exec(enableAll));
+	},
+	(cnv, w, h) => {
+		disableAll();
+
+		yesMovement.destroy = true;
+		noMovement.destroy = true;
+
+		shieldMovement.destroy = true;
+		shield.destroy = true;
+
+		return writeText("allora a quanto pare il bastone funziona eh?")
+			.then(writeText("ricominciamo da capo"))
+			.then(exec((c) => {removeYesButtons(0)}))
+			.then(
+				join(
+					join(
+						linear(buttonNo.position, positions.startNo, 400, (v) => {buttonNo.setPosition(v); }),
+						linear(buttonYes.position, positions.startYes, 400, (v) => {buttonYes.setPosition(v); }),
+					),
+					changeBackground(new vec4(255, 255, 255, 1), 4000)
+				)
+			).then(exec(enableAll));
+	},],
+
+/*
+	[(cnv, w, h) => {
+		disableAll();
+		writeText("Esempio 1").then(exec(enableAll)).run();
+	},
+	(cnv, w, h) => {
+		disableAll();
+		return writeText("Esempio 2").then(exec(enableAll));
+	},],
+*/
+];
+
+function resetNo() {
+	let w, h, start, end, rv = null;
+	w = cnv.width;
+	h = cnv.height;
+
+	if (NO_STATUS[nrNo] && NO_STATUS[nrNo][1])
+		rv = NO_STATUS[nrNo][1](cnv, w, h);
+	nrNo = 0;
+
+	return rv == null ? exec() : rv;
+}
+
+function no() {
+	let w, h;
+	let start, end;
+	w = cnv.width;
+	h = cnv.height;
+	nrNo++;
+	
+	if (NO_STATUS[nrNo] && NO_STATUS[nrNo][0])
+		NO_STATUS[nrNo][0](cnv, w, h).run();
+}
+
+
+function test(val) {
+	if (nrNo >= val - 1) {
+		return;
+	}
+
+	let w, h;
+	let start, end;
+	w = cnv.width;
+	h = cnv.height;
+
+	nrNo++;
+	
+	if (NO_STATUS[nrNo] && NO_STATUS[nrNo][0]) {
+		NO_STATUS[nrNo][0](cnv, w, h).then(wait((c) => {test(val)}, 1000)).run();
+	}
+}
+
+let nrNo = 0;
+let nrYes = 0;
+let questions = [
+	"mi ami?",
+	"tanto?",
+	"tanto, tanto??",
+	"ma sei solo mia????",
+	"vorrai stare sempre con me?",
+	"per sempre?",
+	"sei sicura???",
+	"sei solo mia?",
+	"di nessun altro mai?",
+];
+
+function yes() {
+	let w, h;
+	let start, end;
+	w = cnv.width;
+	h = cnv.height;
+
+	let reset = resetNo();
+	nrYes++;
+
+	if (nrYes < questions.length) {
+		reset.then(exec(disableAll)).then(writeText(questions[nrYes])).then(exec(enableAll)).run();
+	} else {
+		reset
+			.then(exec(disableAll))
+			.then(exec((c) => {
+				for (let temp = drawables; temp != null; temp = temp.next) {
+					temp.destroy = true;
+				}
+			}))
+			.then(writeText("TI AMO TANTISSIMO, SEI SOLO MIA"))
+			.then(wait_loop((c) => {
+				let color = vec4.randSquare(
+					new vec4(0, 0, 0, 1),
+					new vec4(255, 255, 255, 1),
+				);
+				let duration = 1;
+				let p = new Particle(new vec2(Math.random() * w, h), vec2.randCircle([400, 100], [Math.PI, 2 * Math.PI]), color, 5, duration, false);
+				
+				new DrawNode(p).run()
+
+				wait((c) => {
+					for (let i = 0; i < 5; i++) {
+						let s = new Particle(p.position.clone(), vec2.randCircle([90, 90], [Math.PI, 2 * Math.PI]).add(p.speed.clone().mul(0.5)), p.color, 3, duration, true);
+						new DrawNode(s).run();
+					}
+				}, 1000 * duration).run();
+
+				return true;
+			}, 20))
+			.run();
+	}
+}
+
+
+function createYesButton() {
+	return new Button("si")
+		.setSize(buttonsSize.clone())
+		.setOnClick(yes);
+}
+
+function buildScene(cnv) {
+	let w = cnv.width, h = cnv.height;
+	let ctx = cnv.getContext("2d");
+
+	writeText(questions[nrYes]).run();
+
+	buttonYes = createYesButton();
+	insertDrawable(new DrawNode(buttonYes, 3));
+
+	buttonNo = new Button("no")
+		.setSize(buttonsSize.clone())
+		.setOnClick(no);
+	insertDrawable(new DrawNode(buttonNo, 2));
+
+	cursor = new Cursor();
+	insertDrawable(new DrawNode(cursor, -1));
+
+	buttonYes.setPosition(positions.startYes);
+	buttonNo.setPosition(positions.startNo);
+}
+
+function updatePos(e) {
+	let f = cursor.onMove.bind(cursor)
+	f(e);
+}
+
+function mouseDown(e) {
+	let f = cursor.onDown.bind(cursor)
+	f(e);
+}
+
+function mouseUp(e) {
+	let f = cursor.onUp.bind(cursor)
+	f(e);
+}
+
+function changeLockCallback() {
+	let cnv = document.getElementById("canvas");
+	if (document.pointerLockElement == cnv) {
+		cnv.addEventListener("mousemove", updatePos, false);
+		cnv.addEventListener("mousedown", mouseDown, false);
+		cnv.addEventListener("mouseup", mouseUp, false);
+	} else {
+		cnv.removeEventListener("mousemove", updatePos, false);
+		cnv.removeEventListener("mousedown", mouseDown, false);
+		cnv.removeEventListener("mouseup", mouseUp, false);
+	}
+}
+
+window.addEventListener("load", function(){
+	cnv = document.getElementById("canvas");
+	cnv.width = cnv.clientWidth;
+	cnv.height = cnv.clientHeight;
+
+	let w = cnv.width, h = cnv.height;
+
+	sizes = {
+		standard: new vec2(100, 30),
+		big: new vec2(200, 60),
+		small: new vec2(50, 15),
+	};
+
+
+	let MARGIN = 40;
+	positions = {
+		startYes: new vec2(w / 2 - 0.5 * sizes.standard.x - MARGIN / 2, h / 2 + 20),
+		startNo: new vec2(w / 2 + 0.5 * sizes.standard.x + MARGIN / 2, h / 2 + 20),
+		increaseYes: new vec2(w / 2, h / 2 + 20),
+		decreaseNo: new vec2(w / 2, h - sizes.small.y / 2),
+		choice: function(pos, tot, size = sizes.standard.x) {
+			return new vec2((w - (tot * size + (tot - 1) * MARGIN) + size) / 2 + pos * (size + MARGIN), h / 2 + 20);
+		}
+	};
+
+	cnv.addEventListener("click", async() => {
+			await cnv.requestPointerLock({
+			});
+	});
+
+	document.addEventListener("pointerlockchange", changeLockCallback, false);
+
+	loop(cnv, cnv.getContext('2d'));
+
+	buildScene(cnv);
+
+	resetNo();
+});
+
+
+</script>
+
+</head>
+
+<body>
+	<canvas id = "canvas"/>
+</body>
+
+</html>
